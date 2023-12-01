@@ -1,0 +1,234 @@
+# Train Test Split
+def split_data(X, y, test_size=0.2, random_state=42):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+    return X_train, X_test, y_train, y_test
+
+# Confusion Matrix
+def confu_matrix(y_true, y_pred):
+    conf_matrix = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(4, 3))
+    sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", cbar=False)
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.title("Confusion Matrix")
+    plt.show()
+    
+# Classification Report
+def evaluate_classifier(model, X_test, y_test):
+    y_pred = model.predict(X_test)
+    report = classification_report(y_test, y_pred)
+    print(report)
+    confu_matrix(y_test, y_pred)
+
+# Feature Scaling
+def min_max_scaler(df, column_name):
+    if column_name in df.columns:
+        scaler = MinMaxScaler()
+        data_to_scale = df[[column_name]]
+        scaled_column = scaler.fit_transform(data_to_scale)
+        df[column_name] = scaled_column
+    return df
+
+# Feature Importance Visualization
+def imp_vis(X, y, model):
+    y = y.to_numpy().ravel()
+    X_train, X_test, y_train, y_test = split_data(X, y)
+    model.fit(X_train, y_train)
+    # Extract feature importances
+    feature_importances = model.coef_[0]
+    feature_names = X.columns
+    plt.figure(figsize=(6, 4))
+    plt.bar(range(len(feature_importances)), feature_importances)
+    plt.xticks(range(len(feature_importances)), feature_names, rotation=90)
+    plt.xlabel("Features")
+    plt.ylabel("Importance")
+    plt.title("Feature Importance")
+    plt.show()
+
+# PCA
+def pca(df,n_components=3):
+    scaler = StandardScaler()
+    df_scaled = scaler.fit_transform(df)
+    pca = PCA(n_components=n_components)
+    df_pca = pca.fit_transform(df_scaled)
+    df_pca = pd.DataFrame(df_pca, columns=[f'PC{i+1}' for i in range(n_components)])
+    # print(df_pca.head())
+    return df_pca
+
+
+# logistic regression
+def logistic_reg(X, y):
+    y = y.to_numpy().ravel()
+    X_train, X_test, y_train, y_test = split_data(X, y)
+    model = LogisticRegression(multi_class='multinomial', solver='lbfgs', max_iter = 10000)
+    model.fit(X_train, y_train)
+    evaluate_classifier(model, X_test, y_test)
+
+# LDA
+def lda(X, y):
+    X_train, X_test, y_train, y_test = split_data(X, y)
+    model = LinearDiscriminantAnalysis()
+    model.fit(X_train, y_train)
+    evaluate_classifier(model, X_test, y_test)
+
+# QDA > no coef
+def qda(X, y):
+    X_train, X_test, y_train, y_test = split_data(X, y)
+    model = QuadraticDiscriminantAnalysis()
+    model.fit(X_train, y_train)
+    evaluate_classifier(model, X_test, y_test)
+
+# Multinomial NB > no coef
+def multi_nb(X, y):
+    y = y.to_numpy().ravel()
+    X_train, X_test, y_train, y_test = split_data(X, y)
+    model = MultinomialNB()
+    model.fit(X,y)
+    evaluate_classifier(model, X_test, y_test)
+
+# General
+def general(X, y):
+    X_train, X_test, y_train, y_test = split_data(X, y)
+    model = GaussianNB()
+    model.fit(X,y)
+    evaluate_classifier(model, X_test, y_test)
+
+# Unrestricted
+def unrestricted(X,y):
+    scaler = StandardScaler()
+    df_scaled = scaler.fit_transform(X)
+    pca = PCA(n_components=3)
+    df_pca = pca.fit_transform(df_scaled)
+    X_pca = pd.DataFrame(df_pca, columns=[f'PC{i+1}' for i in range(3)])
+    X_pca['PC1'] = pd.cut(X_pca['PC1'], bins=10, labels=False)
+    X_pca['PC2'] = pd.cut(X_pca['PC2'], bins=10, labels=False)
+    X_pca['PC3'] = pd.cut(X_pca['PC3'], bins=10, labels=False)
+
+    X_train, X_test, y_train, y_test = split_data(X_pca, y)
+    df = pd.concat([X_train,y_train],axis=1)
+    df_test = pd.concat([X_test,y_test],axis=1)
+    hc = HillClimbSearch(df)
+    best_model = hc.estimate(scoring_method=K2Score(df),max_iter=100)
+    model = BayesianModel(best_model.edges())
+    model.fit(df, estimator=MaximumLikelihoodEstimator)
+    parents = model.get_parents('Credit_Score')
+    children = model.get_children('Credit_Score')
+    connected_parents = [node for node in parents if model.has_edge(node, 'Credit_Score')]
+
+    markov_blanket_C = set(parents).union(set(children)).union(set(connected_parents))
+    X_test = X_test[markov_blanket_C]
+    inference = VariableElimination(model)
+    predicted_probs = []# 進行推斷，得到每個類別的概率
+    for _, test_sample in X_test.iterrows():
+        predicted_prob = inference.query(variables=['Credit_Score'], evidence=test_sample)
+        predicted_probs.append(predicted_prob.values)
+
+    y_pred = [probs.argmax() for probs in predicted_probs]# 將概率轉換為預測的類別
+    report = classification_report(y_test, y_pred)
+    print(report)
+    confu_matrix(y_test, y_pred)
+    
+
+# TAN
+def tan(X,y):
+    X_train, X_test, y_train, y_test = split_data(X, y)
+    columns = list(pd.concat([y, X], axis=1).columns)
+    columns_1=[col for col in columns if col != 'Credit_Score']
+    df_train = pd.DataFrame(np.concatenate((y_train, X_train), axis=1), columns=columns)
+    df_test = pd.DataFrame(np.concatenate((y_test, X_test), axis=1), columns=columns)
+    num_bins = 10 # 將連續型特徵進行離散化
+    for feature in columns_1:
+        df_train[feature] = pd.cut(df_train[feature], bins=num_bins, labels=False)
+        df_test[feature] = pd.cut(df_test[feature], bins=num_bins, labels=False)
+    # learn TAN graph structure from train data
+    est = TreeSearch(df_train, root_node=random.choice(columns_1))
+    dag = est.estimate(estimator_type='tan', class_node='Credit_Score')
+    # construct Bayesian network by parameterizing the graph structure
+    model = BayesianModel(dag.edges())
+    model.fit(df_train, estimator=BayesianEstimator, prior_type='K2')
+    y_pred = model.predict(df_test.drop(columns=['Credit_Score']))
+    report = classification_report(df_test['Credit_Score'], y_pred)
+    print(report)
+    confu_matrix(y_test, y_pred)
+    G = nx.DiGraph()
+    edges = dag.edges()
+    G.add_edges_from(edges) # 添加邊緣到有向圖
+    root_node = random.choice(columns_1) # 指定樹的根節點
+    pos = nx.spring_layout(G, seed=42) # 使用layout進行樹形布局
+    plt.figure(figsize=(6, 4))
+    nx.draw(G, pos, with_labels=True, arrows=True, node_size=1000, node_color='skyblue', font_size=10, font_color='black', font_weight='bold', width=2, edge_color='gray')
+    plt.title("Tree Structure Visualization")
+    plt.show()
+
+
+# Stacking
+def stacking(X, y):
+    X_train, X_test, y_train, y_test = split_data(X, y)
+    base_models = [
+    ('rf', RandomForestClassifier()),
+    ('da', LinearDiscriminantAnalysis()),
+    ('dt', DecisionTreeClassifier())
+    ]  
+    model = StackingClassifier(estimators=base_models)
+    model.fit(X_train, y_train)
+    evaluate_classifier(model, X_test, y_test)
+
+# Bagging
+def bagging(X, y):
+    X_train, X_test, y_train, y_test = split_data(X, y)
+    model = BaggingClassifier(estimator=DecisionTreeClassifier())
+    model.fit(X_train, y_train)
+    evaluate_classifier(model, X_test, y_test)
+
+# Boosting
+def boosting(X, y):
+    X_train, X_test, y_train, y_test = split_data(X, y)
+    model = AdaBoostClassifier(estimator=DecisionTreeClassifier())
+    model.fit(X_train, y_train)
+    evaluate_classifier(model, X_test, y_test)
+
+# RandonForest
+def randomforest(X, y):
+    X_train, X_test, y_train, y_test = split_data(X, y)
+    model = RandomForestClassifier(n_estimators=100)
+    model.fit(X_train, y_train)
+    evaluate_classifier(model, X_test, y_test)
+
+# Fusion(mean)
+def fusion(X, y):
+    X_train, X_test, y_train, y_test = split_data(X, y)
+    logistic_model = LogisticRegression()
+    tree_model = DecisionTreeClassifier()
+    svm_model = SVC()
+    model = VotingClassifier(estimators=[
+        ('logistic', logistic_model),
+        ('tree', tree_model),
+        ('svm', svm_model)
+    ], voting='hard')
+    model.fit(X_train, y_train)
+    evaluate_classifier(model, X_test, y_test)
+
+
+# Wrapper
+def wrapper (X, y, model):
+    y_1d = y.values.ravel()
+    X_train, X_test, y_train, y_test = train_test_split(X, y_1d, test_size=0.2, random_state=42)
+    all_features = list(X.columns)
+    best_subsets = []
+    best_f1s = []
+    best_subset = []  
+    best_score = 0
+    for feature in all_features:
+        current_features = best_subset + [feature]
+        X_train_subset = X_train[current_features]
+        model.fit(X_train_subset, y_train)
+        y_pred = model.predict(X_test[current_features])
+        acc = accuracy_score(y_test, y_pred)
+        if acc > best_score:
+            best_score = acc
+            best_subset = current_features.copy()
+        best_subsets.append(best_subset)
+        best_f1s.append(best_score)
+    selected_feature_indices = [X.columns.get_loc(feature) for feature in best_subset]
+    X_wrapper = X.iloc[:, selected_feature_indices]
+    return X_wrapper

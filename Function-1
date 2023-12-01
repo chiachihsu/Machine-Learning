@@ -1,0 +1,130 @@
+# Import models
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+# pip install wittgenstein #for rule inducton
+import wittgenstein as lw
+from wittgenstein import RIPPER
+import tensorflow as tf
+from tensorflow import keras
+from keras.utils import to_categorical
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import LabelBinarizer
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import f1_score
+import seaborn as sns
+import time
+from sklearn.model_selection import GridSearchCV
+from sklearn.datasets import make_classification
+from sklearn.metrics import classification_report
+from sklearn.feature_selection import RFE, SequentialFeatureSelector
+from sklearn.metrics import accuracy_score
+from sklearn.neural_network import MLPClassifier
+
+# knn
+def knn_classification(X, y, test_size=0.2, random_state=42):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+    
+    for neighbor in range(1, 11):
+        knn = KNeighborsClassifier(n_neighbors=neighbor)
+        knn.fit(X_train, y_train)
+        y_pred = knn.predict(X_test)
+        f1 = f1_score(y_test, y_pred, average='micro')
+        print("neighbor:", neighbor)
+        print("F1-Score:", f1)
+
+#RIPPER > for binary feature
+def RIPPER_classification(X, y, test_size=0.2, random_state=42):
+    classifiers = {} # Create an empty dictionary to store the classifiers
+    target_classes = ['Credit_Score_0', 'Credit_Score_1', 'Credit_Score_2']
+    f1_scores = []
+
+    for class_name in target_classes:
+        classifier = RIPPER(prune_size=2, n_discretize_bins=10, random_state=42)   # Create an instance of RIPPER
+        y_ec = y[class_name]  # Target class
+        X_train, X_test, y_train, y_test = train_test_split(X, y_ec, test_size=test_size, random_state=random_state)
+        classifier.fit(X_train, y_train) # Fit the classifier to the data
+        classifiers[class_name] = classifier # Store the classifier in the dictionary with the class name as the key
+
+    for class_name, classifier in classifiers.items():
+        y_pred = classifier.predict(X_test)
+        f1 = f1_score(y_test, y_pred, average='micro')
+        f1_scores.append(f1)
+        
+    average_f1 = sum(f1_scores) / len(f1_scores)
+    print("Average F1-Score:",average_f1)
+
+# Artificial neural network
+def ann(X, y, test_size=0.2, random_state=42):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+
+    # Data normalization
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
+
+    y_train_encoded = keras.utils.to_categorical(y_train, 3)
+    y_test_encoded = keras.utils.to_categorical(y_test, num_classes=3)
+
+    ann = keras.Sequential([
+        keras.layers.Input(shape=(19,)),  # Input layer (19 is the number of features)
+        keras.layers.Dense(64, activation='relu'),  # Hidden layer with ReLU activation
+        keras.layers.Dense(32, activation='relu'),  # Another hidden layer
+        keras.layers.Dense(3, activation='softmax')  # Output layer for classification
+    ])
+
+    epoch_values = [1,2,3,4,5]
+    batch_sizes = [8,16,24,32,48,64]
+    results={}
+
+    for epoch_value in epoch_values:
+        for batch in batch_sizes:
+            ann.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+            ann.fit(X_train, y_train_encoded, epochs=epoch_value, batch_size=batch, validation_split=0.2)
+            y_pred_encoded = ann.predict(X_test)
+            y_pred = np.argmax(y_pred_encoded, axis=1)
+            y_test = np.argmax(y_test_encoded, axis=1)
+
+            f1 = f1_score(y_test, y_pred, average='micro')
+            results[(epoch_value, batch)] = f1
+
+    for params, f1 in results.items():
+        epoch_value, batch = params
+        print(f"epoch={epoch_value}, batch_size={batch}: F1-Score={f1}")
+
+# Support Vector Machine
+def svm(X, y, test_size=0.2, random_state=42):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+
+    svm = SVC()
+    svm.fit(X_train, y_train)
+    y_pred = svm.predict(X_test)
+
+    f1 = f1_score(y_test, y_pred, average='micro')
+    print("F1-Score:", f1)
+
+# Decision Tree
+def decision_tree(X, y, test_size=0.2, random_state=42):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+
+    start_time = time.time()
+
+    hyperparameters = {
+        'criterion': 'gini',
+        'max_depth': 20,
+        'min_samples_leaf': 1,
+        'min_samples_split': 2,
+        'splitter': 'best'
+    }
+
+    dt = DecisionTreeClassifier(**hyperparameters)
+    dt.fit(X_train, y_train)
+    y_pred = dt.predict(X_test)
+
+
+    f1 = f1_score(y_test, y_pred, average='micro')
+    print("F1-Score:", f1)
+
+    end_time = time.time()
+    execution_time = end_time - start_time
+    print(f"Execution Time: {execution_time} seconds")
